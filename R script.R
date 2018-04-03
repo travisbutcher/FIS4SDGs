@@ -33,12 +33,12 @@ SeriesList  <- as.data.table(fromJSON("https://unstats.un.org/SDGAPI/v1/sdg/Seri
 #------------------------------------------------------------------------------
 # Pull data for each series
 #------------------------------------------------------------------------------
-
-for(i in 1:length(SeriesList$code))
+#for(i in 1:1)
+for(i in 1:length(SeriesList[[2]]))
 {
+    pageSize <- fromJSON(paste("https://unstats.un.org/SDGAPI/v1/sdg/Series/Data?seriesCode=",SeriesList[i][[2]],"&pageSize=2",sep=""))$totalElements
     
-    
-    queryString <- paste("https://unstats.un.org/SDGAPI/v1/sdg/Series/Data?seriesCode=",SeriesList[i][[2]],"&pageSize=5000",sep="")
+    queryString <- paste("https://unstats.un.org/SDGAPI/v1/sdg/Series/Data?seriesCode=",SeriesList[i][[2]],"&pageSize=",pageSize,sep="")
     
     #queryString <- paste("https://unstats.un.org/SDGAPI/v1/sdg/Series/Data?seriesCode=","AG_FPA_MILLET","&pageSize=5000",sep="")
 
@@ -48,7 +48,7 @@ for(i in 1:length(SeriesList$code))
     # Create grid of key columns
     geoAreaCodes <- countryListXY$geoAreaCode
     
-    slice <- unique(subset(x$data$dimensions, select=-c(Nature)))
+    slice <- unique(x$data$dimensions)
     slice$sliceId <- 1:nrow(slice)
     
     years <- unique(x$data$timePeriodStart)
@@ -58,7 +58,9 @@ for(i in 1:length(SeriesList$code))
                         years = years)
     
     # Extract data matrix:
-    data <- x$data[,c("geoAreaCode",
+    data <- x$data[,c("series",
+                      "seriesDescription",
+                      "geoAreaCode",
                       "timePeriodStart",
                       "value",
                       "valueType",
@@ -67,87 +69,66 @@ for(i in 1:length(SeriesList$code))
     
     colnames(data)[colnames(data)=="timePeriodStart"] <- "years"
     
-    data <- cbind(data, x$data$dimensions)
+    data <- cbind(data, x$data$dimensions, x$data$attributes)
     
-    # Create data cube by left-joining grid and data matrix:
-    cube <- merge(merge(merge(grid,
-                              countryListXY,
-                              all.x = TRUE),
-                        slice,
-                        all.x = TRUE),
-                  data,
-                  all.x = TRUE)
-    
-    cube <- cube[order(cube$geoAreaCode, cube$sliceId, cube$years),]
-    
-    
-    cube <- as.data.table(cube)
-    
-    names(cube)
-    
-    # Create data cube for average of most recent 5-year period
-    
-    latest.year <- max(cube$years)
-    
-    cube.last5years.mean <- merge(unique(subset(cube, select=-c(years, value, valueType, time_detail, source, Nature))),
-                                  cube[years %in% (latest.year-4):latest.year,
-                                       list(years = paste(latest.year-4, latest.year, sep="-"),
-                                            value = mean(as.numeric(value))),
-                                       by = c("geoAreaCode", "sliceId")],
-                                  all.x = TRUE)
-    
-    
-    cube.last5years.mean <- cube.last5years.mean[order(cube.last5years.mean$geoAreaCode, 
-                                                       cube.last5years.mean$sliceId, 
-                                                       cube.last5years.mean$years),]
-    
-    
-    
-    # Create data cube for latest year available
-    # https://stackoverflow.com/questions/24558328/how-to-select-the-row-with-the-maximum-value-in-each-group
-    
-    cube.latest <- cube[cube[, .I[years == max(years)], by =  c("geoAreaCode", "sliceId")]$V1]
-    
-
-    # PIVOT: x <- x  %>% spread(year,value)
-    
-
-    write.table(cube, 
-                file = paste(SeriesList[i][[2]],"_cube.csv", sep=""), 
-                 append = FALSE,
-                 quote = FALSE, 
-                 sep = "\t",
-                 eol = "\n", 
-                 na = "", 
-                 dec = ".", 
-                 row.names = FALSE,
-                 col.names = TRUE, 
-                 fileEncoding = "UTF-8")
-    
-    write.table(cube.last5years.mean, 
-                file = paste(SeriesList[i][[2]],"_cube_last5.csv", sep=""), 
-                append = FALSE,
-                quote = FALSE, 
-                sep = "\t",
-                eol = "\n", 
-                na = "", 
-                dec = ".", 
-                row.names = FALSE,
-                col.names = TRUE, 
-                fileEncoding = "UTF-8")
-    
-    write.table(cube.latest, 
-                file = paste(SeriesList[i][[2]],"_cube_latest.csv", sep=""), 
-                append = FALSE,
-                quote = FALSE, 
-                sep = "\t",
-                eol = "\n", 
-                na = "", 
-                dec = ".", 
-                row.names = FALSE,
-                col.names = TRUE, 
-                fileEncoding = "UTF-8")
-    
-
+    if(sum(data$geoAreaCode %in% geoAreaCodes)>0){
+      
+      
+      # Create data cube by left-joining grid and data matrix:
+      cube <- merge(merge(merge(grid,
+                                countryListXY,
+                                all.x = TRUE),
+                          slice,
+                          all.x = TRUE),
+                    data,
+                    all.x = TRUE)
+      
+      cube <- cube[order(cube$geoAreaCode, cube$sliceId, cube$years),]
+      
+      
+      cube <- as.data.table(cube)
+      
+      names(cube)
+  
+      # PIVOT: x <- x  %>% spread(year,value)
+      
+  
+      write.table(cube, 
+                  file = paste(SeriesList[i][[2]],"_cube.csv", sep=""), 
+                   append = FALSE,
+                   quote = FALSE, 
+                   sep = "\t",
+                   eol = "\n", 
+                   na = "", 
+                   dec = ".", 
+                   row.names = FALSE,
+                   col.names = TRUE, 
+                   fileEncoding = "UTF-8")
+      
+      write.table(cube.last5years.mean, 
+                  file = paste(SeriesList[i][[2]],"_cube_last5.csv", sep=""), 
+                  append = FALSE,
+                  quote = FALSE, 
+                  sep = "\t",
+                  eol = "\n", 
+                  na = "", 
+                  dec = ".", 
+                  row.names = FALSE,
+                  col.names = TRUE, 
+                  fileEncoding = "UTF-8")
+      
+      write.table(cube.latest, 
+                  file = paste(SeriesList[i][[2]],"_cube_latest.csv", sep=""), 
+                  append = FALSE,
+                  quote = FALSE, 
+                  sep = "\t",
+                  eol = "\n", 
+                  na = "", 
+                  dec = ".", 
+                  row.names = FALSE,
+                  col.names = TRUE, 
+                  fileEncoding = "UTF-8")
+      
+    }
 
 }
