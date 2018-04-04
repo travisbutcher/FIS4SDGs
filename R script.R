@@ -1,9 +1,11 @@
+
+#------------------------------------------------------------------------------
 library(jsonlite)
 library(tidyr)
 library(data.table)
 
-setwd("C:/Users/L.GonzalezMorales/OneDrive - United Nations/Federeted information systems for SDGs/Worksho 4-5 April 2018/")
 
+setwd("C:/Users/L.GonzalezMorales/Documents/GitHub/FIS4SDGs/")
 
 
 #-----------------------------------------------------------------------------
@@ -26,7 +28,6 @@ countryListXY[countryListXY$geoAreaCode==652,"geoAreaName"] <- "Saint Barthélemy
 
 #------------------------------------------------------------------------------
 # List of al series available 
-#------------------------------------------------------------------------------
 
 SeriesList  <- as.data.table(fromJSON("https://unstats.un.org/SDGAPI/v1/sdg/Series/List?allreleases=false"))[,c("release","code","description")]
 
@@ -57,10 +58,12 @@ for(i in 1:length(SeriesList[[2]]))
                         sliceId = slice$sliceId, 
                         years = years)
     
+    grid$series.release <- SeriesList[i][[1]]
+    grid$series.code <- SeriesList[i][[2]]
+    grid$series.description <- SeriesList[i][[3]]
+    
     # Extract data matrix:
-    data <- x$data[,c("series",
-                      "seriesDescription",
-                      "geoAreaCode",
+    data <- x$data[,c("geoAreaCode",
                       "timePeriodStart",
                       "value",
                       "valueType",
@@ -69,7 +72,11 @@ for(i in 1:length(SeriesList[[2]]))
     
     colnames(data)[colnames(data)=="timePeriodStart"] <- "years"
     
-    data <- cbind(data, x$data$dimensions, x$data$attributes)
+    # Need to select unique records for the case of multi-indicator series:
+    data <- unique(cbind(data, x$data$dimensions, x$data$attributes))
+    
+    data$value <- as.numeric(data$value)
+    
     
     if(sum(data$geoAreaCode %in% geoAreaCodes)>0){
       
@@ -85,13 +92,42 @@ for(i in 1:length(SeriesList[[2]]))
       
       cube <- cube[order(cube$geoAreaCode, cube$sliceId, cube$years),]
       
+      #-------------------------------------------
+      # Generate cube pivot
+      #-------------------------------------------
+      
+      columns <- c("series.release", "series.code","series.description","geoAreaCode","X", "Y", "ISO3CD", "geoAreaName", "sliceId",
+                   names(x$data$dimensions), "years", "value")
+      
+      cube.pivot <- cube[,columns] 
+      cube.pivot <-  cube[,columns]  %>% spread(years,value)
+      
+      last.year <- max(cube[,"years"])
+      
+      
+      last.5.years <- names(cube.pivot) %in% as.character(seq(last.year-4,last.year,1))
+      
+      if(sum(last.5.years)>1)  {
+        cube.pivot$last.5.years.mean <- apply(cube.pivot[,last.5.years],1,mean, na.rm=TRUE)
+      } 
+      
       
       cube <- as.data.table(cube)
+      cube.latest <- cube[cube[!is.na(value), .I[years == max(years)], by =  c("geoAreaCode", "sliceId")]$V1]
       
-      names(cube)
-  
-      # PIVOT: x <- x  %>% spread(year,value)
+      names(cube.latest)
       
+      cube.latest <- cube.latest[,-c("OBJECTID", "valueType", "time_detail"),  with=FALSE]
+      setnames(cube.latest, old = "years", new = "latest.year")
+      setnames(cube.latest, old = "value", new = "latest.value")
+      setnames(cube.latest, old = "source", new = "latest.source")
+      if("Nature" %in% names(cube.latest))
+        {
+        setnames(cube.latest, old = "Nature", new = "latest.nature")  
+      }
+      
+      
+      cube.pivot <- merge(cube.pivot, cube.latest, all.x = TRUE)      
   
       write.table(cube, 
                   file = paste(SeriesList[i][[2]],"_cube.csv", sep=""), 
@@ -105,20 +141,9 @@ for(i in 1:length(SeriesList[[2]]))
                    col.names = TRUE, 
                    fileEncoding = "UTF-8")
       
-      write.table(cube.last5years.mean, 
-                  file = paste(SeriesList[i][[2]],"_cube_last5.csv", sep=""), 
-                  append = FALSE,
-                  quote = FALSE, 
-                  sep = "\t",
-                  eol = "\n", 
-                  na = "", 
-                  dec = ".", 
-                  row.names = FALSE,
-                  col.names = TRUE, 
-                  fileEncoding = "UTF-8")
       
-      write.table(cube.latest, 
-                  file = paste(SeriesList[i][[2]],"_cube_latest.csv", sep=""), 
+      write.table(cube.pivot, 
+                  file = paste(SeriesList[i][[2]],"_cube.pivot.csv", sep=""), 
                   append = FALSE,
                   quote = FALSE, 
                   sep = "\t",
